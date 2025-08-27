@@ -1,0 +1,343 @@
+openapi: 3.0.3
+info:
+  title: Chat API
+  version: 1.0.0
+  description: API for LLM Chat System with SQL Query Generation
+paths:
+  /api/chats/:
+    get:
+      operationId: api_chats_list
+      description: |-
+        List all chat sessions for the authenticated user.
+
+        GET /api/chats/
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatSession'
+          description: ''
+  /api/chats/{id}/:
+    get:
+      operationId: api_chats_retrieve
+      description: |-
+        Retrieve a specific chat session with all messages.
+
+        GET /api/chats/{chat_id}/
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionDetail'
+          description: ''
+  /api/chats/{id}/delete/:
+    delete:
+      operationId: api_chats_delete_destroy
+      description: |-
+        Delete a chat session and all its messages.
+
+        DELETE /api/chats/{chat_id}/
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/chats/{id}/messages/:
+    post:
+      operationId: api_chats_messages_create
+      description: |-
+        Add a message to a specific chat session.
+
+        POST /api/chats/{chat_id}/messages/
+        Body: {
+            "content": "Your message here"
+        }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMessageRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateMessageRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateMessageRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateMessage'
+          description: ''
+  /api/chats/{id}/update/:
+    put:
+      operationId: api_chats_update_update
+      description: |-
+        Update chat session title.
+
+        PATCH /api/chats/{chat_id}/
+        Body: {
+            "title": "New title"
+        }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatSessionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChatSessionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChatSessionRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSession'
+          description: ''
+    patch:
+      operationId: api_chats_update_partial_update
+      description: |-
+        Update chat session title.
+
+        PATCH /api/chats/{chat_id}/
+        Body: {
+            "title": "New title"
+        }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedChatSessionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedChatSessionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedChatSessionRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSession'
+          description: ''
+  /api/chats/create/:
+    post:
+      operationId: api_chats_create_create
+      description: |-
+        Create a new chat session with auto-generated UUID.
+
+        POST /api/chats/create/
+        Body: {
+            "title": "optional title"  // Optional
+        }
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChatRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateChatRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateChatRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateChat'
+          description: ''
+  /api/health/:
+    get:
+      operationId: api_health_retrieve
+      tags:
+      - api
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    ChatMessage:
+      type: object
+      description: Serializer for chat messages.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        message_type:
+          $ref: '#/components/schemas/MessageTypeEnum'
+        content:
+          type: string
+        generated_sql:
+          type: string
+        sql_result:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content
+      - message_type
+    ChatSession:
+      type: object
+      description: Serializer for chat sessions.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        messages_count:
+          type: string
+          readOnly: true
+        last_message:
+          type: string
+          readOnly: true
+    ChatSessionDetail:
+      type: object
+      description: Detailed serializer for chat sessions with messages.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          readOnly: true
+    ChatSessionRequest:
+      type: object
+      description: Serializer for chat sessions.
+      properties:
+        title:
+          type: string
+          maxLength: 200
+    CreateChat:
+      type: object
+      description: Serializer for creating new chat sessions.
+      properties:
+        title:
+          type: string
+          maxLength: 200
+    CreateChatRequest:
+      type: object
+      description: Serializer for creating new chat sessions.
+      properties:
+        title:
+          type: string
+          maxLength: 200
+    CreateMessage:
+      type: object
+      description: Serializer for creating messages.
+      properties:
+        content:
+          type: string
+      required:
+      - content
+    CreateMessageRequest:
+      type: object
+      description: Serializer for creating messages.
+      properties:
+        content:
+          type: string
+          minLength: 1
+      required:
+      - content
+    MessageTypeEnum:
+      enum:
+      - user
+      - assistant
+      type: string
+      description: |-
+        * `user` - User
+        * `assistant` - Assistant
+    PatchedChatSessionRequest:
+      type: object
+      description: Serializer for chat sessions.
+      properties:
+        title:
+          type: string
+          maxLength: 200
