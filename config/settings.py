@@ -173,6 +173,16 @@ CONSTANCE_CONFIG = {
         "LLM System prompt",
         str,
     ),
+    "LLM_SYSTEM_PROMPT_WITH_TOOLS": (
+        prompt.LLM_SYSTEM_PROMPT_WITH_TOOLS,
+        "LLM System prompt",
+        str,
+    ),
+    "LLM_SYSTEM_PROMPT_WITH_TOOLS_AND_FILTERS": (
+        prompt.LLM_SYSTEM_PROMPT_WITH_TOOLS_AND_FILTERS,
+        "LLM System prompt",
+        str,
+    ),
     "TOP_K": (
         10,
         "Top K results to return from database",

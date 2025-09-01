@@ -6,6 +6,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
+from constance import config 
+
+from langchain_core.messages import HumanMessage
 
 from .models import ChatSession, ChatMessage
 from .serializers import (
@@ -16,7 +19,11 @@ from .serializers import (
     ChatMessageSerializer,
     ChatProcessRequestSerializer,
 )
-from .services.llm_langgraph import SQLQuerySystem
+from .services.llm_langgraph_tools import (SQLQuerySystemTools, 
+                                           ProcessedMessages, 
+                                           convert_queryset_to_langchain,
+                                           get_user_filters)
+                                           
 
 logger = logging.getLogger(__name__)
 
@@ -36,51 +43,66 @@ class ProcessChatMessageView(generics.GenericAPIView):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.llm_system = SQLQuerySystem()
-    
+        self.llm_system = SQLQuerySystemTools()
+        self.message_processor = ProcessedMessages()
+
     def post(self, request):
         """Process chat message through LLM system with conversation history."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         chat_id = serializer.validated_data.get('chat_id')
-        message_content = serializer.validated_data['message']
+        user_m = serializer.validated_data['message']
         user = request.user
         
         try:
             # Step 1: Get or create chat session
             chat_session, created_new_chat = self._get_or_create_chat_session(chat_id, user)
             
-            # Step 2: Get conversation history if existing chat
-            conversation_history = self._get_conversation_history(chat_session)
-            
+            # Step 2: Get conversation history if existing chat. limit last 10
+            chat_history = self._get_conversation_history(chat_session)
+            conversation_history = convert_queryset_to_langchain(chat_history)[:10]
+
+            # Step 3: Get last user filters if any, limit 3 last
+            user_filters = get_user_filters(chat_history)[:3]
+           
             # Step 3: Save user message
             user_message = ChatMessage.objects.create(
                 session=chat_session,
                 message_type='user',
-                content=message_content
+                content=user_m
             )
             
             # Step 4: Process through LLM system with history
-            llm_result = self._process_with_llm_and_history(message_content, conversation_history)
-            
+            messages = conversation_history + [HumanMessage(content=user_m)]
+            system_prompt_filters= config.LLM_SYSTEM_PROMPT_WITH_TOOLS_AND_FILTERS.format(
+                user_filters=user_filters
+            )
+            processed_result = self.llm_system.query_and_process(messages, 
+                                                                 self.message_processor,
+                                                                 custom_system_prompt=system_prompt_filters
+                                                                 )
+            ai_response = processed_result.ai_messages[-1]
+            generated_sql = processed_result.sql_queries[-1] if processed_result.sql_queries else None
+            sql_result = processed_result.tool_messages[-1] if processed_result.tool_messages else None
+
             # Step 5: Save assistant response
             assistant_message = ChatMessage.objects.create(
                 session=chat_session,
                 message_type='assistant',
-                content=llm_result.get('answer', 'No response generated'),
-                generated_sql=llm_result.get('query', ''),
-                sql_result=str(llm_result.get('sql_result', ''))
+                content=ai_response,
+                generated_sql=generated_sql or "",
+                sql_result=sql_result or ""
             )
-            
+
             # Step 6: Generate title for new chats
             if created_new_chat and not chat_session.title:
-                self._generate_chat_title(chat_session, message_content)
-            
+                self._generate_chat_title(chat_session, user_m)
+
             return Response({
                 'chat_id': chat_session.id,
-                'answer': assistant_message.content,
-                'created_new_chat': created_new_chat
+                'answer': processed_result.ai_messages[-1],
+                'created_new_chat': created_new_chat,
             })
             
         except ValueError as e:
@@ -104,75 +126,14 @@ class ProcessChatMessageView(generics.GenericAPIView):
         else:
             chat_session = ChatSession.objects.create(user=user)
             return chat_session, True
-    
+
     def _get_conversation_history(self, chat_session):
         """Get formatted conversation history for LLM context."""
         # Get all messages for this session, ordered chronologically (oldest first)
         messages = chat_session.messages.all().order_by('created_at')
-        
-        conversation_history = []
-        for message in messages:
-            # Format message for LLM context
-            if message.message_type == 'user':
-                role = "Human"
-            else:  # assistant
-                role = "Assistant"
-            
-            conversation_history.append({
-                'role': role,
-                'content': message.content
-            })
-        
-        logger.info(f"Retrieved {len(conversation_history)} messages for conversation history")
-        return conversation_history
-    
-    def _process_with_llm_and_history(self, message_content, conversation_history):
-        """Process message through LLM system with conversation history."""
-        logger.info(f"Processing message with {len(conversation_history)} historical messages")
-        
-        try:
-            # Format the message with conversation history
-            formatted_input = self._format_message_with_history(message_content, conversation_history)
-            
-            # Process through your LLM system
-            result = self.llm_system.query(formatted_input, stream=False)
-            return result
-        except Exception as e:
-            logger.error(f"LLM processing failed: {e}")
-            return {
-                'question': message_content,
-                'query': 'SELECT 1;',
-                'sql_result': 'Error processing query',
-                'answer': 'I apologize, but I encountered an error while processing your request.'
-            }
-    
-    def _format_message_with_history(self, current_message, conversation_history):
-        """Format current message with conversation history for LLM context."""
-        if not conversation_history:
-            # No history, just return current message
-            return current_message
-        
-        # Build context with conversation history
-        context_parts = ["Previous conversation context:"]
-        
-        # Add conversation history (limit to last 10 exchanges to avoid token limits)
-        recent_history = conversation_history[-20:]  # Last 20 messages (10 exchanges)
-        
-        for msg in recent_history:
-            context_parts.append(f"{msg['role']}: {msg['content']}")
-        
-        # Add current message
-        context_parts.extend([
-            "",
-            "Current question:",
-            current_message
-        ])
-        
-        formatted_input = "\n".join(context_parts)
-        
-        logger.debug(f"Formatted input with history: {formatted_input[:200]}...")
-        return formatted_input
-    
+        logger.info(f"Retrieved {len(messages)} messages for conversation history")
+        return messages
+
     def _generate_chat_title(self, chat_session, first_message):
         """Generate a title for new chat sessions."""
         title = first_message[:50] + "..." if len(first_message) > 50 else first_message

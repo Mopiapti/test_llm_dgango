@@ -17,6 +17,7 @@ dependencies = [
     "langchain-community>=0.3.28",
     "langchain-openai>=0.3.32",
     "langgraph>=0.6.6",
+    "notebook>=7.4.5",
     "pillow>=11.3.0",
     "python-dotenv>=1.1.1",
     "redis>=6.4.0",
